@@ -1,6 +1,7 @@
 import Foundation
 import Security
 import CryptoKit
+import CommonCrypto
 import CryptoCore
 
 public final class KeychainManager {
@@ -68,7 +69,7 @@ public final class KeychainManager {
     public func exportEncryptedBackup(alias: String = defaultAlias, passphrase: String) throws -> String {
         let keyPair = try loadKeyPair(alias: alias)
         let salt = HPKEService.generateRandomNonce(length: 16)
-        let derivedKey = deriveKey(passphrase: passphrase, salt: salt)
+        let derivedKey = try deriveKey(passphrase: passphrase, salt: salt, usePBKDF2: true)
 
         let plainDict: [String: String] = [
             "alias": alias,
@@ -81,7 +82,8 @@ public final class KeychainManager {
         let sealedBox = try ChaChaPoly.seal(plainData, using: symmetricKey)
 
         let backupDict: [String: Any] = [
-            "version": 1,
+            "version": 2,
+            "kdf": "pbkdf2-sha256-600k",
             "alias": alias,
             "salt": salt.base64EncodedString(),
             "nonce": Data(sealedBox.nonce).base64EncodedString(),
@@ -109,7 +111,9 @@ public final class KeychainManager {
             throw CryptoCoreError.invalidEnvelope(reason: "Invalid backup JSON structure")
         }
 
-        let derivedKey = deriveKey(passphrase: passphrase, salt: salt)
+        let kdfName = dict["kdf"] as? String ?? ""
+        let isPBKDF2 = (kdfName == "pbkdf2-sha256-600k" || (dict["version"] as? Int ?? 1) >= 2)
+        let derivedKey = try deriveKey(passphrase: passphrase, salt: salt, usePBKDF2: isPBKDF2)
         let symmetricKey = SymmetricKey(data: derivedKey)
         let chachaNonce = try ChaChaPoly.Nonce(data: nonceData)
         let sealedBox = try ChaChaPoly.SealedBox(nonce: chachaNonce, ciphertext: ciphertext, tag: tag)
@@ -127,14 +131,41 @@ public final class KeychainManager {
         return keyPair
     }
 
-    private func deriveKey(passphrase: String, salt: Data) -> Data {
-        let inputKey = SymmetricKey(data: Data(passphrase.utf8))
-        let derived = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: inputKey,
-            salt: salt,
-            info: Data("SideVault-Backup-v1".utf8),
-            outputByteCount: 32
-        )
-        return derived.withUnsafeBytes { Data($0) }
+    private func deriveKey(passphrase: String, salt: Data, usePBKDF2: Bool) throws -> Data {
+        if usePBKDF2 {
+            var derivedKey = Data(count: 32)
+            let passwordData = Data(passphrase.utf8)
+            let status = derivedKey.withUnsafeMutableBytes { derivedKeyBytes in
+                salt.withUnsafeBytes { saltBytes in
+                    passwordData.withUnsafeBytes { passwordBytes in
+                        CCKeyDerivationPBKDF(
+                            CCPBKDFAlgorithm(kCCPBKDF2),
+                            passwordBytes.baseAddress?.assumingMemoryBound(to: Int8.self),
+                            passwordData.count,
+                            saltBytes.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                            salt.count,
+                            CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+                            600_000,
+                            derivedKeyBytes.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                            32
+                        )
+                    }
+                }
+            }
+            guard status == kCCSuccess else {
+                throw CryptoCoreError.keyDerivationFailed
+            }
+            return derivedKey
+        } else {
+            // Legacy HKDF fallback for v1 backups
+            let inputKey = SymmetricKey(data: Data(passphrase.utf8))
+            let derived = HKDF<SHA256>.deriveKey(
+                inputKeyMaterial: inputKey,
+                salt: salt,
+                info: Data("SideVault-Backup-v1".utf8),
+                outputByteCount: 32
+            )
+            return derived.withUnsafeBytes { Data($0) }
+        }
     }
 }

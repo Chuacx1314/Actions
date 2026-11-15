@@ -146,6 +146,7 @@ public struct HybridDecryptIntent: AppIntent {
         var envelopeB64URL = payload.trimmingCharacters(in: .whitespacesAndNewlines)
         var effectiveTimestamp: Int64 = Int64(timestamp)
 
+        var hasValidSig = false
         // Parse JSON if passed as a wrapped envelope
         if envelopeB64URL.hasPrefix("{"),
            let data = envelopeB64URL.data(using: .utf8),
@@ -169,7 +170,13 @@ public struct HybridDecryptIntent: AppIntent {
                 guard valid else {
                     throw CryptoCoreError.invalidSignature
                 }
+                hasValidSig = true
             }
+        }
+
+        // Fix signature stripping downgrade: if sender key was specified, signature must be present and verified
+        if !senderPublicKeyBase64.isEmpty && !hasValidSig {
+            throw CryptoCoreError.invalidSignature
         }
 
         let envelope = try SideVaultEnvelope.parseBase64URL(envelopeB64URL)
@@ -247,5 +254,97 @@ public struct VerifySignatureIntent: AppIntent {
             base64PublicKey: publicKeyBase64
         )
         return .result(value: isValid ? "VALID" : "INVALID")
+    }
+}
+
+// MARK: - 7. Encrypt File Intent
+public struct EncryptFileIntent: AppIntent {
+    public static var title: LocalizedStringResource = "SideVault: 用公钥加密文件"
+    public static var description = IntentDescription("使用对端 X25519 公钥对文件进行非对称混合加密，输出 .svault 文件。")
+    public static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "待加密文件")
+    public var file: IntentFile
+
+    @Parameter(title: "收件方公钥 (Base64)")
+    public var recipientPublicKeyBase64: String
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult & ReturnsValue<IntentFile> {
+        guard let pkData = Data(base64Encoded: recipientPublicKeyBase64), pkData.count == 32 else {
+            throw CryptoCoreError.invalidKeyLength(expected: 32, actual: Data(base64Encoded: recipientPublicKeyBase64)?.count ?? 0)
+        }
+        let recipientPublicKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: pkData)
+
+        let originalFilename = file.filename
+        let fileData = file.data
+        guard !fileData.isEmpty else {
+            throw CryptoCoreError.invalidEnvelope(reason: "Input file is empty")
+        }
+
+        let fileAAD = Data("SideVault-File-v2|\(originalFilename)".utf8)
+        let encryptedStream = try SideVaultChunkedService.sealChunked(
+            plaintext: fileData,
+            recipientPublicKey: recipientPublicKey,
+            baseAAD: fileAAD
+        )
+
+        let wrapperDict: [String: Any] = [
+            "format": "sidevault-file",
+            "v": 2,
+            "filename": originalFilename,
+            "stream": encryptedStream.base64EncodedString()
+        ]
+
+        let jsonPayload = try JSONSerialization.data(withJSONObject: wrapperDict, options: [.prettyPrinted, .sortedKeys])
+        let outputFilename = "\(originalFilename).svault"
+        let outputFile = IntentFile(data: jsonPayload, filename: outputFilename)
+
+        return .result(value: outputFile)
+    }
+}
+
+// MARK: - 8. Decrypt File Intent
+public struct DecryptFileIntent: AppIntent {
+    public static var title: LocalizedStringResource = "SideVault: 用私钥解密文件"
+    public static var description = IntentDescription("使用本地私钥解密 .svault 文件，还原为原始文件与文件名。")
+    public static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "加密文件 (.svault)")
+    public var file: IntentFile
+
+    @Parameter(title: "本地私钥别名", default: "SideVault-Default")
+    public var keyAlias: String
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult & ReturnsValue<IntentFile> {
+        let keyPair = try KeychainManager.shared.loadKeyPair(alias: keyAlias)
+        let rawData = file.data
+
+        var originalFilename = file.filename.hasSuffix(".svault")
+            ? String(file.filename.dropLast(7))
+            : file.filename
+        var streamData = rawData
+
+        if let jsonDict = try? JSONSerialization.jsonObject(with: rawData) as? [String: Any] {
+            if let name = jsonDict["filename"] as? String {
+                originalFilename = name
+            }
+            if let streamB64 = jsonDict["stream"] as? String, let decoded = Data(base64Encoded: streamB64) {
+                streamData = decoded
+            }
+        }
+
+        let fileAAD = Data("SideVault-File-v2|\(originalFilename)".utf8)
+        let decryptedData = try SideVaultChunkedService.openChunked(
+            stream: streamData,
+            recipientPrivateKey: keyPair.x25519Private,
+            baseAAD: fileAAD
+        )
+
+        let outputFile = IntentFile(data: decryptedData, filename: originalFilename)
+        return .result(value: outputFile)
     }
 }

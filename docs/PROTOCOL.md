@@ -133,3 +133,14 @@ POST|/api/v1/action|1731682800|e4f8b91234cdef0123456789
 | **Ed25519 签名** | `try privateKey.signature(for: data)` | `crypto.sign(null, data, privateKey)` |
 | **Ed25519 验签** | `publicKey.isValidSignature(sig, for: data)` | `crypto.verify(null, data, publicKey, sig)` |
 | **私钥安全存储** | iOS Keychain (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`) | 环境变量或安全密钥存储 (KMS / OS Keyring) |
+
+---
+
+## 8. 已知限制与安全审计说明
+
+依据独立安全评审，以下事项作为已知限制记录在案：
+
+1. **签名与路径上下文解耦**：当前 `sig` 仅覆盖 `envelope` 封包本体，业务防篡改依赖 AAD 内嵌的 `path` 与 `method`（由 ChaCha20Poly1305 强保证）。若在中间网关层单独验签做审计日志，无法脱机验证所签请求的具体 HTTP 路径。
+2. **接收方前向安全性局限**：HPKE Base 模式提供发送方前向安全，但若接收方静态私钥在未来某刻泄露，在此之前嗅探录制的历史密文将面临回溯解密风险。建议高敏感业务定期生成/轮换密钥对。
+3. **Shortcuts 客户端轻量重放**：iOS 端 `HybridDecryptIntent` 为保证捷径轻量运行，主要依赖时间戳漂移窗口校验；完整的 Nonce 去重持久化池建议由常驻守护进程或服务端处理。
+4. **口令派生标准**：密钥备份已全面强制升级为 `PBKDF2-HMAC-SHA256` 算法（600,000 次迭代），防范离线 GPU 暴破。

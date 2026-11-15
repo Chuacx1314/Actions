@@ -5,11 +5,8 @@ public struct HPKEService {
     public static let ciphersuite = HPKE.Ciphersuite.Curve25519_SHA256_ChachaPoly
 
     public static func generateRandomNonce(length: Int = SideVaultConstants.nonceLength) -> Data {
-        var bytes = [UInt8](repeating: 0, count: length)
-        for i in 0..<length {
-            bytes[i] = UInt8.random(in: 0...255)
-        }
-        return Data(bytes)
+        let key = SymmetricKey(size: .init(bitCount: length * 8))
+        return key.withUnsafeBytes { Data($0) }
     }
 
     public static func seal(
