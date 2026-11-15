@@ -119,4 +119,87 @@ final class ChunkBoundaryTests: XCTestCase {
             baseAAD: baseAAD
         ))
     }
+
+    func testZeroChunkCountStreamMustThrow() throws {
+        let recipientKeys = SideVaultKeyPair()
+        let stream = try SideVaultChunkedService.sealChunked(
+            plaintext: Data("sample".utf8),
+            recipientPublicKey: recipientKeys.x25519Public,
+            baseAAD: baseAAD
+        )
+
+        var bytes = [UInt8](stream)
+        // chunkCount is at offset: magic(4) + version(1) + enc(32) + nonce(12) = 49
+        let countOffset = 49
+        bytes[countOffset] = 0
+        bytes[countOffset + 1] = 0
+        bytes[countOffset + 2] = 0
+        bytes[countOffset + 3] = 0
+
+        XCTAssertThrowsError(try SideVaultChunkedService.openChunked(
+            stream: Data(bytes),
+            recipientPrivateKey: recipientKeys.x25519Private,
+            baseAAD: baseAAD
+        )) { error in
+            guard case CryptoCoreError.invalidEnvelope(let reason) = (error as? CryptoCoreError) ?? CryptoCoreError.keyDerivationFailed else {
+                XCTFail("Expected invalidEnvelope error")
+                return
+            }
+            XCTAssertTrue(reason.contains("positive"))
+        }
+    }
+
+    func testTrailingGarbageBytesMustThrow() throws {
+        let recipientKeys = SideVaultKeyPair()
+        var stream = try SideVaultChunkedService.sealChunked(
+            plaintext: Data("sample".utf8),
+            recipientPublicKey: recipientKeys.x25519Public,
+            baseAAD: baseAAD
+        )
+        stream.append(Data([0xDE, 0xAD, 0xBE, 0xEF]))
+
+        XCTAssertThrowsError(try SideVaultChunkedService.openChunked(
+            stream: stream,
+            recipientPrivateKey: recipientKeys.x25519Private,
+            baseAAD: baseAAD
+        )) { error in
+            guard case CryptoCoreError.invalidEnvelope(let reason) = (error as? CryptoCoreError) ?? CryptoCoreError.keyDerivationFailed else {
+                XCTFail("Expected invalidEnvelope error")
+                return
+            }
+            XCTAssertTrue(reason.contains("Trailing bytes"))
+        }
+    }
+
+    func testHugeChunkCountMustThrowImmediately() throws {
+        let recipientKeys = SideVaultKeyPair()
+        let stream = try SideVaultChunkedService.sealChunked(
+            plaintext: Data("sample".utf8),
+            recipientPublicKey: recipientKeys.x25519Public,
+            baseAAD: baseAAD
+        )
+
+        var bytes = [UInt8](stream)
+        let countOffset = 49
+        // Set chunkCount to 0x7FFFFFFF (over 2 billion chunks)
+        bytes[countOffset] = 0x7F
+        bytes[countOffset + 1] = 0xFF
+        bytes[countOffset + 2] = 0xFF
+        bytes[countOffset + 3] = 0xFF
+
+        let start = Date()
+        XCTAssertThrowsError(try SideVaultChunkedService.openChunked(
+            stream: Data(bytes),
+            recipientPrivateKey: recipientKeys.x25519Private,
+            baseAAD: baseAAD
+        )) { error in
+            guard case CryptoCoreError.invalidEnvelope(let reason) = (error as? CryptoCoreError) ?? CryptoCoreError.keyDerivationFailed else {
+                XCTFail("Expected invalidEnvelope error")
+                return
+            }
+            XCTAssertTrue(reason.contains("exceeds stream capacity"))
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertLessThan(elapsed, 0.5, "Rejection must happen immediately without looping")
+    }
 }

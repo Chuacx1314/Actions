@@ -103,6 +103,17 @@ public struct SideVaultChunkedService {
         let chunkCount = Int(UInt32(bigEndian: countVal))
         offset += 4
 
+        let minChunkOverhead = 4 + SideVaultConstants.poly1305TagLength // 20 bytes: 4B length + 16B tag
+        let remainingBytes = bytes.count - offset
+        let maxPossibleChunks = remainingBytes / minChunkOverhead
+
+        guard chunkCount > 0 else {
+            throw CryptoCoreError.invalidEnvelope(reason: "Chunk count must be positive")
+        }
+        guard chunkCount <= maxPossibleChunks else {
+            throw CryptoCoreError.invalidEnvelope(reason: "Chunk count \(chunkCount) exceeds stream capacity \(maxPossibleChunks)")
+        }
+
         var recipient = try HPKE.Recipient(
             privateKey: recipientPrivateKey,
             ciphersuite: HPKEService.ciphersuite,
@@ -137,6 +148,10 @@ public struct SideVaultChunkedService {
             } catch {
                 throw CryptoCoreError.chunkCorrupted(index: index)
             }
+        }
+
+        guard offset == bytes.count else {
+            throw CryptoCoreError.invalidEnvelope(reason: "Trailing bytes after last chunk")
         }
 
         return result
