@@ -1,0 +1,12 @@
+{
+  "name": "sidevault-interop",
+  "version": "1.0.0",
+  "description": "Cross-platform interop tests for SideVault HPKE protocol",
+  "main": "test.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "hpke-js": "^1.8.1"
+  }
+}

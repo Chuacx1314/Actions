@@ -1,0 +1,50 @@
+name: SideVault
+options:
+  bundleIdPrefix: dev.chuacx
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    SWIFT_VERSION: "5.0"
+    PRODUCT_BUNDLE_IDENTIFIER: dev.chuacx.sidevault
+
+packages:
+  CryptoCore:
+    path: ../CryptoCore
+
+targets:
+  SideVault:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - Sources
+    dependencies:
+      - package: CryptoCore
+    settings:
+      base:
+        PRODUCT_NAME: SideVault
+        PRODUCT_BUNDLE_IDENTIFIER: dev.chuacx.sidevault
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0.0"
+        INFOPLIST_KEY_CFBundleDisplayName: "SideVault"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_BITCODE: NO
+
+schemes:
+  SideVault:
+    build:
+      targets:
+        SideVault: all
+    run:
+      config: Release
+    archive:
+      config: Release
