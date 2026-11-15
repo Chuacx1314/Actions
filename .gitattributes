@@ -1,0 +1,9 @@
+# Normalize line endings: CRLF in a GitHub Actions workflow breaks the bash run blocks.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
+*.p8 binary
+*.p12 binary
+*.mobileprovision binary
