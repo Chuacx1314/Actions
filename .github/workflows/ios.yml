@@ -11,6 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # Swift 5.9+ backtracer: prints a symbolized stack trace when a test process traps
+  # (e.g. "exited with unexpected signal code 5"), which swift-testing otherwise swallows.
+  SWIFT_BACKTRACE: enable=yes
   XCODE_APP: /Applications/Xcode_26.6.app
   SCHEME: SideVault
   PROJECT: App/SideVault.xcodeproj

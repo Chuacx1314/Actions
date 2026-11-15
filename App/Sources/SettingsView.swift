@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import CryptoCore
 
 public struct SettingsView: View {

@@ -134,15 +134,17 @@ public struct HybridDecryptIntent: AppIntent {
     @Parameter(title: "发送方 Ed25519 公钥 (可选验签)", default: "")
     public var senderPublicKeyBase64: String
 
+    // App Intents 的 @Parameter 只支持 Int 这一种整数类型(Value: _IntentValue),
+    // Int64 会直接编译失败,所以这里用 Int,内部再转 Int64。
     @Parameter(title: "报文时间戳 (若 payload 是纯 Base64URL 则填此项，0 表示不校验)", default: 0)
-    public var timestamp: Int64
+    public var timestamp: Int
 
     public init() {}
 
     public func perform() async throws -> some IntentResult & ReturnsValue<String> {
         let keyPair = try KeychainManager.shared.loadKeyPair(alias: keyAlias)
         var envelopeB64URL = payload.trimmingCharacters(in: .whitespacesAndNewlines)
-        var effectiveTimestamp = timestamp
+        var effectiveTimestamp: Int64 = Int64(timestamp)
 
         // Parse JSON if passed as a wrapped envelope
         if envelopeB64URL.hasPrefix("{"),
