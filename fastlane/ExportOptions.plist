@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Committed as a template: CI replaces __TEAM_ID__ with the APPLE_TEAM_ID secret
+  and writes the result to $RUNNER_TEMP/ExportOptions.plist, so the team id
+  never lands in the repository.
+
+  Note: xcodebuild deprecates the export method "app-store" in current Xcode and
+  asks for "app-store-connect". If an older Xcode is ever pinned, switch it back.
+-->
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>teamID</key>
+    <string>__TEAM_ID__</string>
+    <key>stripSwiftSymbols</key>
+    <true/>
+    <key>uploadSymbols</key>
+    <false/>
+    <key>manageAppVersionAndBuildNumber</key>
+    <false/>
+    <key>destination</key>
+    <string>export</string>
+</dict>
+</plist>
