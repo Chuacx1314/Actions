@@ -5,7 +5,7 @@ import CryptoKit
 final class RoundTripTests: XCTestCase {
     func testSingleMessageSealAndOpen() throws {
         let recipientKeys = SideVaultKeyPair()
-        let plaintext = "Hello SideVault from iOS Shortcuts!".data(using: .utf8)!
+        let plaintext = "Hello SideVault from iOS Shortcuts!".data(using: .utf8) ?? Data()
         let aad = SideVaultEnvelope.buildAAD(
             method: "POST",
             path: "/api/v1/action",

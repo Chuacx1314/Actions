@@ -104,12 +104,17 @@ final class ChunkBoundaryTests: XCTestCase {
             baseAAD: baseAAD
         )
 
-        // Corrupt the last byte of stream
-        let lastIdx = stream.count - 1
-        stream[lastIdx] ^= 0x55
+        // Corrupt the last byte of stream safely
+        var streamBytes = [UInt8](stream)
+        guard !streamBytes.isEmpty else {
+            XCTFail("Stream should not be empty")
+            return
+        }
+        streamBytes[streamBytes.count - 1] ^= 0x55
+        let tamperedStream = Data(streamBytes)
 
         XCTAssertThrowsError(try SideVaultChunkedService.openChunked(
-            stream: stream,
+            stream: tamperedStream,
             recipientPrivateKey: recipientKeys.x25519Private,
             baseAAD: baseAAD
         ))
