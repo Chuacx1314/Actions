@@ -5,7 +5,7 @@ import CryptoKit
 final class TamperTests: XCTestCase {
     func testTamperedCiphertextMustFail() throws {
         let recipientKeys = SideVaultKeyPair()
-        let plaintext = "Sensitive Financial Data".data(using: .utf8)!
+        let plaintext = "Sensitive Financial Data".data(using: .utf8) ?? Data()
         let nonce = HPKEService.generateRandomNonce()
         let aad = SideVaultEnvelope.buildAAD(method: "POST", path: "/pay", timestamp: 1000, nonce: nonce)
 
@@ -16,9 +16,15 @@ final class TamperTests: XCTestCase {
             nonce: nonce
         )
 
-        // 1. Flip a bit in ciphertext
-        var tamperedCT = envelope.ciphertextAndTag
-        tamperedCT[0] ^= 0xFF
+        // 1. Flip a bit safely using contiguous byte array
+        var ctBytes = [UInt8](envelope.ciphertextAndTag)
+        guard !ctBytes.isEmpty else {
+            XCTFail("Ciphertext should not be empty")
+            return
+        }
+        ctBytes[0] ^= 0xFF
+        let tamperedCT = Data(ctBytes)
+
         let tamperedEnvelope = try SideVaultEnvelope(
             version: envelope.version,
             algorithm: envelope.algorithm,
@@ -38,7 +44,7 @@ final class TamperTests: XCTestCase {
 
     func testTamperedAADMustFail() throws {
         let recipientKeys = SideVaultKeyPair()
-        let plaintext = "Important Command".data(using: .utf8)!
+        let plaintext = "Important Command".data(using: .utf8) ?? Data()
         let nonce = HPKEService.generateRandomNonce()
         let aad = SideVaultEnvelope.buildAAD(method: "POST", path: "/delete", timestamp: 1000, nonce: nonce)
 
@@ -86,13 +92,39 @@ final class TamperTests: XCTestCase {
 
     func testTamperedEnvelopeHeaderFails() throws {
         let recipientKeys = SideVaultKeyPair()
-        let plaintext = "Test".data(using: .utf8)!
+        let plaintext = "Test".data(using: .utf8) ?? Data()
         let aad = Data("aad".utf8)
         let envelope = try HPKEService.seal(plaintext: plaintext, recipientPublicKey: recipientKeys.x25519Public, aad: aad)
 
-        var binary = envelope.serializeBinary()
+        var binaryBytes = [UInt8](envelope.serializeBinary())
+        guard !binaryBytes.isEmpty else {
+            XCTFail("Binary should not be empty")
+            return
+        }
         // Tamper version byte to 99
-        binary[0] = 99
+        binaryBytes[0] = 99
+        let binary = Data(binaryBytes)
         XCTAssertThrowsError(try SideVaultEnvelope.parseBinary(binary))
+    }
+
+    func testFuzzAndBoundaryInputsMustThrowWithoutCrash() throws {
+        // 1. Empty string
+        XCTAssertThrowsError(try SideVaultEnvelope.parseBase64URL(""))
+
+        // 2. Corrupted base64 characters
+        XCTAssertThrowsError(try SideVaultEnvelope.parseBase64URL("???%%%$$$@@@"))
+
+        // 3. Short binary inputs (below minEnvelopeLength 62)
+        for length in [0, 1, 10, 31, 45, 61] {
+            let shortData = Data(repeating: 0x01, count: length)
+            XCTAssertThrowsError(try SideVaultEnvelope.parseBinary(shortData))
+
+            let shortB64 = SideVaultEnvelope.encodeBase64URL(shortData)
+            XCTAssertThrowsError(try SideVaultEnvelope.parseBase64URL(shortB64))
+        }
+
+        // 4. Large invalid payload (10KB)
+        let largeData = Data(repeating: 0xFF, count: 10_000)
+        XCTAssertThrowsError(try SideVaultEnvelope.parseBinary(largeData))
     }
 }

@@ -26,3 +26,6 @@ AuthKey_*.p8
 *.p12
 *.mobileprovision
 .env
+
+# local logs
+*.log

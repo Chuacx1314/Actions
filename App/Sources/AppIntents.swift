@@ -96,20 +96,20 @@ public struct HybridEncryptIntent: AppIntent {
         )
         let envelopeB64URL = envelope.toBase64URL()
 
+        var resultDict: [String: Any] = [
+            "envelope": envelopeB64URL,
+            "timestamp": timestamp
+        ]
+
         if !signerAlias.isEmpty {
             let signerKeys = try KeychainManager.shared.loadKeyPair(alias: signerAlias)
             let signature = try SigningService.sign(text: envelopeB64URL, privateKey: signerKeys.ed25519Private)
-            let resultDict: [String: Any] = [
-                "envelope": envelopeB64URL,
-                "timestamp": timestamp,
-                "sig": signature,
-                "signer_fp": signerKeys.ed25519Fingerprint
-            ]
-            let jsonData = try JSONSerialization.data(withJSONObject: resultDict, options: [.prettyPrinted, .sortedKeys])
-            return .result(value: String(decoding: jsonData, as: UTF8.self))
+            resultDict["sig"] = signature
+            resultDict["signer_fp"] = signerKeys.ed25519Fingerprint
         }
 
-        return .result(value: envelopeB64URL)
+        let jsonData = try JSONSerialization.data(withJSONObject: resultDict, options: [.prettyPrinted, .sortedKeys])
+        return .result(value: String(decoding: jsonData, as: UTF8.self))
     }
 }
 
@@ -153,8 +153,12 @@ public struct HybridDecryptIntent: AppIntent {
             if let env = dict["envelope"] as? String {
                 envelopeB64URL = env
             }
-            if let ts = dict["timestamp"] as? Int64 {
+            if let tsNum = dict["timestamp"] as? NSNumber {
+                effectiveTimestamp = tsNum.int64Value
+            } else if let ts = dict["timestamp"] as? Int64 {
                 effectiveTimestamp = ts
+            } else if let ts = dict["timestamp"] as? Int {
+                effectiveTimestamp = Int64(ts)
             }
             if let sig = dict["sig"] as? String, !senderPublicKeyBase64.isEmpty {
                 let valid = SigningService.verify(

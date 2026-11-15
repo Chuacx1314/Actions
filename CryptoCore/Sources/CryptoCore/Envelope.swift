@@ -8,11 +8,11 @@ public struct SideVaultEnvelope: Equatable {
     public let ciphertextAndTag: Data // ciphertext + 16 bytes Poly1305 tag
 
     public var tag: Data {
-        return ciphertextAndTag.suffix(SideVaultConstants.poly1305TagLength)
+        return Data(ciphertextAndTag.suffix(SideVaultConstants.poly1305TagLength))
     }
 
     public var rawCiphertext: Data {
-        return ciphertextAndTag.dropLast(SideVaultConstants.poly1305TagLength)
+        return Data(ciphertextAndTag.dropLast(SideVaultConstants.poly1305TagLength))
     }
 
     public init(
@@ -33,9 +33,9 @@ public struct SideVaultEnvelope: Equatable {
         }
         self.version = version
         self.algorithm = algorithm
-        self.enc = enc
-        self.nonce = nonce
-        self.ciphertextAndTag = ciphertextAndTag
+        self.enc = Data(enc)
+        self.nonce = Data(nonce)
+        self.ciphertextAndTag = Data(ciphertextAndTag)
     }
 
     public func serializeBinary() -> Data {
@@ -48,12 +48,15 @@ public struct SideVaultEnvelope: Equatable {
         return data
     }
 
-    public static func parseBinary(_ data: Data) throws -> SideVaultEnvelope {
-        guard data.count >= SideVaultConstants.minEnvelopeLength else {
-            throw CryptoCoreError.invalidEnvelope(reason: "Binary length \(data.count) less than minimum \(SideVaultConstants.minEnvelopeLength)")
+    public static func parseBinary(_ inputData: Data) throws -> SideVaultEnvelope {
+        guard inputData.count >= SideVaultConstants.minEnvelopeLength else {
+            throw CryptoCoreError.invalidEnvelope(reason: "Binary length \(inputData.count) less than minimum \(SideVaultConstants.minEnvelopeLength)")
         }
-        let v = data[0]
-        let alg = data[1]
+
+        // Copy into contiguous byte array to guarantee 0-indexed safe access
+        let bytes = [UInt8](inputData)
+        let v = bytes[0]
+        let alg = bytes[1]
         guard v == SideVaultConstants.protocolVersion else {
             throw CryptoCoreError.invalidEnvelope(reason: "Unsupported protocol version \(v)")
         }
@@ -65,9 +68,13 @@ public struct SideVaultEnvelope: Equatable {
         let encEnd = encStart + SideVaultConstants.ephemeralKeyLength
         let nonceEnd = encEnd + SideVaultConstants.nonceLength
 
-        let enc = data.subdata(in: encStart..<encEnd)
-        let nonce = data.subdata(in: encEnd..<nonceEnd)
-        let ciphertextAndTag = data.subdata(in: nonceEnd..<data.count)
+        guard bytes.count >= nonceEnd + SideVaultConstants.poly1305TagLength else {
+            throw CryptoCoreError.invalidEnvelope(reason: "Payload truncated before tag")
+        }
+
+        let enc = Data(bytes[encStart..<encEnd])
+        let nonce = Data(bytes[encEnd..<nonceEnd])
+        let ciphertextAndTag = Data(bytes[nonceEnd..<bytes.count])
 
         return try SideVaultEnvelope(
             version: v,

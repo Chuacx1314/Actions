@@ -71,26 +71,36 @@ public struct SideVaultChunkedService {
             throw CryptoCoreError.invalidEnvelope(reason: "Chunked stream too short")
         }
 
+        let bytes = [UInt8](stream)
         var offset = 0
-        let streamMagic = stream.subdata(in: offset..<offset+4).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+
+        var magicVal: UInt32 = 0
+        withUnsafeMutableBytes(of: &magicVal) { ptr in
+            for i in 0..<4 { ptr[i] = bytes[offset + i] }
+        }
+        let streamMagic = UInt32(bigEndian: magicVal)
         offset += 4
         guard streamMagic == magic else {
             throw CryptoCoreError.invalidEnvelope(reason: "Invalid magic in chunked stream")
         }
 
-        let version = stream[offset]
+        let version = bytes[offset]
         offset += 1
         guard version == SideVaultConstants.protocolVersion else {
             throw CryptoCoreError.invalidEnvelope(reason: "Unsupported chunked version \(version)")
         }
 
-        let enc = stream.subdata(in: offset..<offset+SideVaultConstants.ephemeralKeyLength)
+        let enc = Data(bytes[offset..<offset+SideVaultConstants.ephemeralKeyLength])
         offset += SideVaultConstants.ephemeralKeyLength
 
-        let nonce = stream.subdata(in: offset..<offset+SideVaultConstants.nonceLength)
+        let nonce = Data(bytes[offset..<offset+SideVaultConstants.nonceLength])
         offset += SideVaultConstants.nonceLength
 
-        let chunkCount = Int(stream.subdata(in: offset..<offset+4).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian })
+        var countVal: UInt32 = 0
+        withUnsafeMutableBytes(of: &countVal) { ptr in
+            for i in 0..<4 { ptr[i] = bytes[offset + i] }
+        }
+        let chunkCount = Int(UInt32(bigEndian: countVal))
         offset += 4
 
         var recipient = try HPKE.Recipient(
@@ -102,16 +112,20 @@ public struct SideVaultChunkedService {
 
         var result = Data()
         for index in 0..<chunkCount {
-            guard offset + 4 <= stream.count else {
+            guard offset + 4 <= bytes.count else {
                 throw CryptoCoreError.chunkCorrupted(index: index)
             }
-            let chunkLen = Int(stream.subdata(in: offset..<offset+4).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian })
+            var lenVal: UInt32 = 0
+            withUnsafeMutableBytes(of: &lenVal) { ptr in
+                for i in 0..<4 { ptr[i] = bytes[offset + i] }
+            }
+            let chunkLen = Int(UInt32(bigEndian: lenVal))
             offset += 4
 
-            guard offset + chunkLen <= stream.count else {
+            guard offset + chunkLen <= bytes.count else {
                 throw CryptoCoreError.chunkCorrupted(index: index)
             }
-            let chunkData = stream.subdata(in: offset..<offset+chunkLen)
+            let chunkData = Data(bytes[offset..<offset+chunkLen])
             offset += chunkLen
 
             let isLast = (index == chunkCount - 1)
